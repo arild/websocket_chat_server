@@ -1,0 +1,32 @@
+body {
+    background: white;
+    margin: 20px;
+    width: 500px;
+}
+
+#messagesBox {
+    height: 500px;
+    margin-bottom: 10px;
+    border: 1px solid darkolivegreen;
+    border-radius: 5px;
+    box-sizing: border-box;
+
+    font-size: 0.8em;
+    color: lightslategray;
+    overflow: scroll;
+    overflow-x: hidden;
+}
+
+#messagesBox ul {
+    list-style-type: none;
+    padding: 0px;
+    margin: 10px;
+}
+
+#messagesBox ul .userName {
+    font-weight: bold;
+}
+
+form input {
+    width: 100%;
+}
