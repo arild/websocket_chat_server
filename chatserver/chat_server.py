@@ -1,15 +1,23 @@
 import os
 import sys
-sys.path.insert(0, os.getcwd() + os.sep + os.pardir + os.sep + 'lib')
+import config
+sys.path.insert(0, config.LIBRARY_ABSOLUTE_PATH)
 import Protocol
 import tornado.web
 import tornado.websocket
+import pyrocomm
+import Pyro4
 
 
 class MessageRouter():
-    def __init__(self):
+    """ Remote object routing messages and handling other user activity, such as login
+    """
+    def __init__(self, httpPort):
+        self.httpPort = httpPort
+        self.uri = None
+        self.load_balancer = None
         self.users = {}
-        self.message_handlers = {
+        self.messageHandlers = {
             Protocol.LOGIN: self.login_handler,
             Protocol.LOGOUT: self.logout_handler,
             Protocol.PUBLIC_MESSAGE: self.public_message_handler,
@@ -17,10 +25,22 @@ class MessageRouter():
             Protocol.LIST_ALL_USERS: self.list_all_users_handler
         }
 
+    def set_message_router_uri(self, uri):
+        self.uri = uri
+
+    def notify_load_balancer(self):
+        """ Registers message router at load balancer
+        """
+        self.load_balancer = Pyro4.Proxy('PYRONAME:load_balancer')  # name server object lookup uri shortcut
+        self.load_balancer.register_chat_server(self.httpPort, self.uri)
+
     def handle_message(self, msg, senderConnection):
         """ Invokes handler for message type
         """
-        self.message_handlers[msg.messageType](msg, senderConnection)
+        if msg.messageType in self.messageHandlers:
+            self.messageHandlers[msg.messageType](msg, senderConnection)
+        else:
+            pass  # Discard message
 
     def login_handler(self, msg, senderConnection):
         if msg.senderUserName in self.users:
@@ -54,13 +74,12 @@ class MessageRouter():
         senderConnection.send_message(newMsg)
 
 
-global_message_router = MessageRouter()
+global_message_router = None
 
 
 class WebSocketHandler(tornado.websocket.WebSocketHandler):
-    def open(self):
-        pass
-
+    """ Accepts web socket connections
+    """
     def on_message(self, message):
         """ Wraps de-serialization of message object
         """
@@ -68,9 +87,6 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
         print(message)
         msg = Protocol.from_json(message)
         global_message_router.handle_message(msg, self)
-
-    def on_close(self):
-        print("WebSocket closed")
 
     def send_message(self, message):
         """ Wraps serialization of message object
@@ -81,6 +97,8 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
 
 
 class MainHandler(tornado.web.RequestHandler):
+    """ Serves static media over http. Invoked once by each client to load page.
+    """
     def get(self):
         self.render('index.html')
 
@@ -88,14 +106,25 @@ class MainHandler(tornado.web.RequestHandler):
         self.set_header("Cache-control", "no-cache")
 
 
-if __name__ == "__main__":
+def main(httpPort):
+    global global_message_router
+    global_message_router = MessageRouter(httpPort)
+    daemon, uri = pyrocomm.wrap(global_message_router)
+    global_message_router.set_message_router_uri(uri)
+    global_message_router.notify_load_balancer()
+
     application = tornado.web.Application(
         [
             (r"/", MainHandler),
             (r"/websocket", WebSocketHandler)
         ],
-        template_path = os.path.join(os.path.dirname(__file__), "templates"),
-        static_path = os.path.join(os.path.dirname(__file__), "static")
+        template_path=os.path.join(os.path.dirname(__file__), "templates"),
+        static_path=os.path.join(os.path.dirname(__file__), "static")
     )
-    application.listen(8080)
+    application.listen(httpPort)
+    print('chat server running on port ' + str(httpPort))
     tornado.ioloop.IOLoop.instance().start()
+
+
+if __name__ == "__main__":
+    main(8080)
