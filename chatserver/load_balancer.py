@@ -2,39 +2,43 @@ import sys
 import config
 sys.path.insert(0, config.LIBRARY_ABSOLUTE_PATH)
 import tornado.web
-import pyrocomm
 import threading
-import Pyro4
+import mailbox
+from protocol import MessageType
 
 
-class LoadBalancer(object):
+class LoadBalancer(threading.Thread):
     def __init__(self):
+        super().__init__()
         self.serverList = []
-        self.serverListLock = threading.Lock()
+        self.mailbox = mailbox.create_mailbox('load_balancer')
 
     def get_next_server_address(self):
         """ Returns the next chat server address using round robin scheduling
         """
-        with self.serverListLock:
-            server = self.serverList.pop()
-            self.serverList.insert(0, server)
-            httpPort, messageRouterUri = server
-            return 'http://localhost' + ':' + str(httpPort)
+        server = self.serverList.pop()
+        self.serverList.insert(0, server)
+        httpPort, messageRouterUri = server
+        return 'http://localhost' + ':' + str(httpPort)
 
-    def register_chat_server(self, httpPort, messageRouterPyroUri):
+    def register_chat_server(self, msg):
         """ Rpc intended for chat servers to register themselves at the load balancer.
         Returns the current registered message routers, including provided router
         """
-        with self.serverListLock:
-            self.serverList.append((httpPort, messageRouterPyroUri))
-            messageRouters = [server[1] for server in self.serverList]
-            print('returning: ' + str(messageRouters))
-            for routerUri in messageRouters:
-                routerProxy = Pyro4.Proxy(routerUri)
-                routerProxy.load_balancer_message_routers_notification(messageRouters)
+        chatServerHttpPort = msg.data
+        self.serverList.append((chatServerHttpPort, msg.senderMailboxUri))
+        messageRouters = [server[1] for server in self.serverList]
+        for routerUri in messageRouters:
+            routerMailbox = mailbox.get_mailbox_proxy(routerUri)
+            msg = self.mailbox.create_message(MessageType.NEW_MESSAGE_ROUTER, messageRouters)
+            routerMailbox.put(msg)
 
-            print('SERVERS');
-            print(self.serverList)
+    def run(self):
+        while True:
+            msg = self.mailbox.get()
+            print('MESSAGE: ' + str(msg))
+            if msg.messageType == MessageType.REGISTER_CHAT_SERVER:
+                    self.register_chat_server(msg)
 
 
 global_load_balancer = None
@@ -51,7 +55,7 @@ class MainHttpHandler(tornado.web.RequestHandler):
 def main():
     global global_load_balancer
     global_load_balancer = LoadBalancer()
-    daemon, uri = pyrocomm.wrap(global_load_balancer, 'load_balancer', True)
+    global_load_balancer.start()
     application = tornado.web.Application([
         (r"/", MainHttpHandler),
         ])

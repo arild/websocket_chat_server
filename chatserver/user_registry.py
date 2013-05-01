@@ -1,39 +1,39 @@
 import sys
 import config
+
 sys.path.insert(0, config.LIBRARY_ABSOLUTE_PATH)
-import pyrocomm
 import threading
-import Pyro4
+import mailbox
+from protocol import MessageType
 
 
 class UserRegistry(object):
     def __init__(self):
         self.users = {}
         self.usersLock = threading.Lock()
+        self.mailbox = mailbox.create_mailbox('user_registry')
 
-    def register_new_user(self, userName, messageRouterPyroUri):
-        print('CURRENT USERS: ')
-        print(self.users)
-        with self.usersLock:
-            if userName in self.users:
-                self.users[userName] = messageRouterPyroUri
-                return True
-            else:
-                return False
+    def register_new_user(self, userName, messageRouterMailboxUri):
+        if userName in self.users:
+            return False
+        else:
+            self.users[userName] = messageRouterMailboxUri
+            return True
 
-    def hello(self):
-        print('** hello')
-        return '**hello'
-
-
-global_user_registry = None
+    def run_forever(self):
+        while True:
+            msg = self.mailbox.get()
+            if msg.messageType == MessageType.REGISTER_NEW_USER:
+                userName = msg.data
+                isSuccess = self.register_new_user(userName, msg.senderMailboxUri)
+                proxy = mailbox.get_mailbox_proxy(msg.senderMailboxUri)
+                responseMsg = self.mailbox.create_message(MessageType.REGISTER_NEW_USER, (userName, isSuccess))
+                proxy.put(responseMsg)
 
 
 def main():
-    global global_user_registry
-    global_user_registry = UserRegistry()
-    daemon, uri = pyrocomm.wrap(global_user_registry, 'user_registry', False)
-    daemon.requestLoop()
+    user_registry = UserRegistry()
+    user_registry.run_forever()
 
 
 if __name__ == "__main__":

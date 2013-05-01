@@ -23,7 +23,7 @@ def wrap(target_obj, name=None, daemonize=True):
         if daemonize:
             thread = Thread(target=daemon.requestLoop, args=())
             thread.start()
-        return daemon, uri
+        return uri, daemon
     except Exception as e:
         print('failed wrapping to pyro object:' + str(e))
         os._exit(0)
