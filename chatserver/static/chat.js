@@ -4,6 +4,7 @@ var Protocol = {
     LOGIN: 'login',
     LOGIN_FAILED: 'login_failed',
     LOGOUT: 'logout',
+    LOGOUT_FAILED: 'logout_failed',
     PUBLIC_MESSAGE: 'public_message',
     PRIVATE_MESSAGE: 'private_message',
     LIST_ALL_USERS: 'list_all_users'
@@ -48,6 +49,9 @@ var ChatServer = function(chatView) {
                 break;
             case Protocol.LOGOUT:
                 self.chatView.renderUserLogout(msg.senderUserName);
+                break;
+            case Protocol.LOGOUT_FAILED:
+                self.chatView.renderUserLogoutFailed(msg.messageText);
                 break;
             case Protocol.PUBLIC_MESSAGE:
                 self.chatView.renderPublicMessage(msg.senderUserName, msg.messageText);
@@ -120,6 +124,9 @@ var ChatView = {
     renderUserLogout: function(userName) {
         this.addAsListItem(this.renderBold(userName) + ' has left the chat');
     },
+    renderUserLogoutFailed: function(messageText) {
+        this.addAsListItem('logout failed: ' + messageText);
+    },
     renderPublicMessage: function(userName, messageText) {
         this.addAsListItem(this.renderBold(userName) + ': ' + messageText);
     },
@@ -140,7 +147,7 @@ var ChatView = {
         this.addAsListItem('Chat commands available:<br>');
         this.addAsListItem('-------------------------------------------<br>');
         this.addAsListItem(this.renderBold('login &lt;user name&gt;') + ': required to participate in chat<br>');
-        this.addAsListItem(this.renderBold('logout &lt;user name&gt;') + ': leaves the chat<br>');
+        this.addAsListItem(this.renderBold('logout') + ': leaves the chat<br>');
         this.addAsListItem(this.renderBold('public &lt;message&gt;') + ': sends message to all users<br>');
         this.addAsListItem(this.renderBold('private &lt;receiver user name&gt &lt;message&gt;') + ': sends private message to specified user<br>');
         this.addAsListItem(this.renderBold('listall') + ': lists all users<br><br>');

@@ -3,7 +3,7 @@ import config
 sys.path.insert(0, config.LIBRARY_ABSOLUTE_PATH)
 import tornado.web
 import threading
-import mailbox
+from mailbox import Mailbox
 from protocol import MessageType
 
 
@@ -11,7 +11,7 @@ class LoadBalancer(threading.Thread):
     def __init__(self):
         super().__init__()
         self.serverList = []
-        self.mailbox = mailbox.create_mailbox('load_balancer')
+        self.mailbox = Mailbox.create_mailbox('load_balancer')
 
     def get_next_server_address(self):
         """ Returns the next chat server address using round robin scheduling
@@ -29,7 +29,7 @@ class LoadBalancer(threading.Thread):
         self.serverList.append((chatServerHttpPort, msg.senderMailboxUri))
         messageRouters = [server[1] for server in self.serverList]
         for routerUri in messageRouters:
-            routerMailbox = mailbox.get_mailbox_proxy(routerUri)
+            routerMailbox = self.mailbox.get_mailbox_proxy(routerUri)
             msg = self.mailbox.create_message(MessageType.NEW_MESSAGE_ROUTER, messageRouters)
             routerMailbox.put(msg)
 

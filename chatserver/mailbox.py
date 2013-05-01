@@ -9,7 +9,7 @@ class Mailbox(queue.Queue):
     as a remote object
     """
     def __init__(self):
-        super().__init__(100)
+        super().__init__(1000)  # Maximum 1000 messages hard-coded
         self.uri = None
         self.daemon = None
 
@@ -18,21 +18,21 @@ class Mailbox(queue.Queue):
         """
         return ServerMessage(messageType, self.uri, data)
 
+    def get_mailbox_proxy(self, nameOrUri):
+        """ Returns a proxy for a mailbox identificator.
+        Look up a mailbox in global naming registry if a name is provided.
+        If a uri is provided, the naming registry is not accessed.
+        Instance method for testability
+        """
+        if isinstance(nameOrUri, str):
+            return Pyro4.Proxy('PYRONAME:' + nameOrUri)
+        else:
+            return Pyro4.Proxy(nameOrUri)
 
-def create_mailbox(name=None):
-    """ Factory for mailbox class. Wraps the mailbox into a remote object.
-    """
-    mailbox = Mailbox()
-    mailbox.uri, mailbox.daemon = pyrocomm.wrap(mailbox, name, daemonize=True)
-    return mailbox
-
-
-def get_mailbox_proxy(nameOrUri):
-    """ Returns a proxy for a mailbox identificator.
-    Look up a mailbox in global naming registry if a name is provided.
-    If a uri is provided, the naming registry is not accessed
-    """
-    if isinstance(nameOrUri, str):
-        return Pyro4.Proxy('PYRONAME:' + nameOrUri)
-    else:
-        return Pyro4.Proxy(nameOrUri)
+    @staticmethod
+    def create_mailbox(name=None):
+        """ Factory for mailbox class. Wraps the mailbox into a remote object.
+        """
+        mailbox = Mailbox()
+        mailbox.uri, mailbox.daemon = pyrocomm.wrap(mailbox, name, daemonize=True)
+        return mailbox
