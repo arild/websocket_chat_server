@@ -35,20 +35,23 @@ class UserRegistry(Thread):
     def stop(self):
         self.running = False
 
+    def _handle_message(self, msg):
+        userName = msg.data
+        mailboxProxy = self.mailbox.get_mailbox_proxy(msg.senderMailboxUri)
+        if msg.messageType == MessageType.USER_REGISTRY_NEW_USER:
+            isSuccess = self.register_new_user(userName, msg.senderMailboxUri)
+            responseMsg = self.mailbox.create_message(MessageType.USER_REGISTRY_NEW_USER, (userName, isSuccess))
+            mailboxProxy.put(responseMsg)
+        elif msg.messageType == MessageType.USER_REGISTRY_REMOVE_USER:
+            isSuccess = self.remove_user(userName)
+            responseMsg = self.mailbox.create_message(MessageType.USER_REGISTRY_REMOVE_USER, (userName, isSuccess))
+            mailboxProxy.put(responseMsg)
+
     def run(self):
         while self.running:
             try:
                 msg = self.mailbox.get(timeout=self.mailboxTimeoutSec)
-                userName = msg.data
-                mailboxProxy = self.mailbox.get_mailbox_proxy(msg.senderMailboxUri)
-                if msg.messageType == MessageType.REGISTER_NEW_USER:
-                    isSuccess = self.register_new_user(userName, msg.senderMailboxUri)
-                    responseMsg = self.mailbox.create_message(MessageType.REGISTER_NEW_USER, (userName, isSuccess))
-                    mailboxProxy.put(responseMsg)
-                elif msg.messageType == MessageType.REMOVE_EXISTING_USER:
-                    isSuccess = self.remove_user(userName)
-                    responseMsg = self.mailbox.create_message(MessageType.REMOVE_EXISTING_USER, (userName, isSuccess))
-                    mailboxProxy.put(responseMsg)
+                self._handle_message(msg)
             except queue.Empty:
                 pass
 

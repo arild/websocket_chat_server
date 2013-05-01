@@ -48,6 +48,7 @@ var ChatServer = function(chatView) {
                 self.chatView.renderUserLoginFailed(msg.messageText);
                 break;
             case Protocol.LOGOUT:
+                self.isLoggedIn = false;
                 self.chatView.renderUserLogout(msg.senderUserName);
                 break;
             case Protocol.LOGOUT_FAILED:
@@ -57,7 +58,7 @@ var ChatServer = function(chatView) {
                 self.chatView.renderPublicMessage(msg.senderUserName, msg.messageText);
                 break;
             case Protocol.PRIVATE_MESSAGE:
-                self.chatView.renderPrivateMessage(msg.senderUserName, msg.messageText, msg.senderUserName == self.userName);
+                self.chatView.renderPrivateMessage(msg.senderUserName, msg.receiverUserName, msg.messageText, msg.senderUserName != self.userName);
                 break;
             case Protocol.LIST_ALL_USERS:
                 self.chatView.renderAllUsers(msg.allUsers);
@@ -81,6 +82,8 @@ var ChatServer = function(chatView) {
         }
         else {
             switch (messageType) {
+                case 'login':
+                    self.chatView.addAsListItem('already logged in');
                 case 'logout':
                     self.sendAsText(new Message(Protocol.LOGOUT, self.userName));
                     break;
@@ -130,12 +133,12 @@ var ChatView = {
     renderPublicMessage: function(userName, messageText) {
         this.addAsListItem(this.renderBold(userName) + ': ' + messageText);
     },
-    renderPrivateMessage: function(senderUserName, messageText, isSentMessage) {
-        if (isSentMessage)
-            var description = 'private message to ';
+    renderPrivateMessage: function(senderUserName, receiverUserName,  messageText, isReceivedMessage) {
+        if (isReceivedMessage)
+            var description = 'private message from ' + this.renderBold(senderUserName);
         else
-            var description = 'private message from ';
-        this.addAsListItem(description + this.renderBold(senderUserName) + ': '+ messageText)
+            var description = 'private message to ' + this.renderBold(receiverUserName);
+        this.addAsListItem(description + ': '+ messageText)
     },
     renderAllUsers: function(users) {
         var usersHtml = $.map(users, function(userName) {
@@ -150,8 +153,8 @@ var ChatView = {
         this.addAsListItem(this.renderBold('logout') + ': leaves the chat<br>');
         this.addAsListItem(this.renderBold('public &lt;message&gt;') + ': sends message to all users<br>');
         this.addAsListItem(this.renderBold('private &lt;receiver user name&gt &lt;message&gt;') + ': sends private message to specified user<br>');
-        this.addAsListItem(this.renderBold('listall') + ': lists all users<br><br>');
-        this.addAsListItem('-------------------------------------------<br>');
+        this.addAsListItem(this.renderBold('listall') + ': lists all users<br>');
+        this.addAsListItem('-------------------------------------------<br><br>');
     }
 };
 

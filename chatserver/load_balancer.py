@@ -8,26 +8,33 @@ from protocol import MessageType
 
 
 class LoadBalancer(threading.Thread):
+    """ Access point for clients. Round robin scheduling of front-end servers.
+
+    TODO: Detect front-end server failure and broadcast notification
+    """
     def __init__(self):
         super().__init__()
         self.serverList = []
+        self.serverListLock = threading.Lock()
         self.mailbox = Mailbox.create_mailbox('load_balancer')
 
     def get_next_server_address(self):
-        """ Returns the next chat server address using round robin scheduling
+        """ Returns the next chat server address using round robin scheduling.
+        Thread-safe, can be called externally
         """
-        server = self.serverList.pop()
-        self.serverList.insert(0, server)
-        httpPort, messageRouterUri = server
-        return 'http://localhost' + ':' + str(httpPort)
+        with self.serverListLock:
+            server = self.serverList.pop()
+            self.serverList.insert(0, server)
+            httpPort, messageRouterUri = server
+            return 'http://localhost' + ':' + str(httpPort)
 
     def register_chat_server(self, msg):
-        """ Rpc intended for chat servers to register themselves at the load balancer.
-        Returns the current registered message routers, including provided router
+        """ Returns the current registered message routers, including provided router
         """
         chatServerHttpPort = msg.data
-        self.serverList.append((chatServerHttpPort, msg.senderMailboxUri))
-        messageRouters = [server[1] for server in self.serverList]
+        with self.serverListLock:
+            self.serverList.append((chatServerHttpPort, msg.senderMailboxUri))
+            messageRouters = [server[1] for server in self.serverList]
         for routerUri in messageRouters:
             routerMailbox = self.mailbox.get_mailbox_proxy(routerUri)
             msg = self.mailbox.create_message(MessageType.NEW_MESSAGE_ROUTER, messageRouters)
@@ -36,7 +43,6 @@ class LoadBalancer(threading.Thread):
     def run(self):
         while True:
             msg = self.mailbox.get()
-            print('MESSAGE: ' + str(msg))
             if msg.messageType == MessageType.REGISTER_CHAT_SERVER:
                     self.register_chat_server(msg)
 

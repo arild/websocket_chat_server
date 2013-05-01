@@ -19,7 +19,9 @@ class MailboxMock(mailbox.Mailbox):
 
 
 class TestUserRegistry(unittest.TestCase):
-
+    """ Tests user registry by setting up the registry and sending messages.
+    Alternatively, methods of registry could be tested separately.
+    """
     def setUp(self):
         self.senderMailboxMock = MailboxMock()
         self.userRegistryMailbox = MailboxMock(proxyMock=self.senderMailboxMock)
@@ -34,10 +36,10 @@ class TestUserRegistry(unittest.TestCase):
         testUserName = 'test_user_name'
         try:
             # Should register new user correctly
-            requestMsg = self.userRegistryMailbox.create_message(MessageType.REGISTER_NEW_USER, testUserName)
+            requestMsg = self.userRegistryMailbox.create_message(MessageType.USER_REGISTRY_NEW_USER, testUserName)
             self.userRegistryMailbox.put(requestMsg)
             responseMsg = self.senderMailboxMock.get(timeout=1)
-            self.assertEqual(MessageType.REGISTER_NEW_USER, responseMsg.messageType)
+            self.assertEqual(MessageType.USER_REGISTRY_NEW_USER, responseMsg.messageType)
             userName, isSuccess = responseMsg.data
             self.assertEqual(testUserName, userName)
             self.assertTrue(isSuccess)
@@ -45,7 +47,7 @@ class TestUserRegistry(unittest.TestCase):
             # Should not register same user twice
             self.userRegistryMailbox.put(requestMsg)
             responseMsg = self.senderMailboxMock.get(timeout=1)
-            self.assertEqual(MessageType.REGISTER_NEW_USER, responseMsg.messageType)
+            self.assertEqual(MessageType.USER_REGISTRY_NEW_USER, responseMsg.messageType)
             userName, isSuccess = responseMsg.data
             self.assertEqual(testUserName, userName)
             self.assertFalse(isSuccess)

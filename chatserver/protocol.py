@@ -66,16 +66,28 @@ class MessageType:
     """ Chat server request for looking up or creating a new user in global user registry.
     User registry response for whether request was successful or not
     """
-    REGISTER_NEW_USER = 'register_new_user'
+    USER_REGISTRY_NEW_USER = 'user_registry_new_user'
 
     """ Chat server request for removing/logging out user in global user registry.
     User registry response for whether request was successful or not
     """
-    REMOVE_EXISTING_USER = 'remove_existing_user'
+    USER_REGISTRY_REMOVE_USER = 'user_registry_remove_user'
+
+    """ Notification between chat servers about successful user login
+    """
+    NEW_USER = 'new_user'
+
+    """ Notification between chat servers about successful logout
+    """
+    REMOVE_USER = 'remove_user'
 
     """ Request to message router to forward attached message to all clients
     """
-    FORWARD_MESSAGE_TO_ALL_CLIENTS = 'forward_message_to_all_clients'
+    FORWARD_PUBLIC_MESSAGE_TO_ALL_CLIENTS = 'forward_message_to_all_clients'
+
+    """ Request to message router to forward attached message to a specified client
+    """
+    FORWARD_PRIVATE_MESSAGE_TO_CLIENT = 'forward_message_to_client'
 
 
 class Message:

@@ -10,13 +10,19 @@ from protocol import ClientMessage, MessageType
 
 
 class MessageRouter(Thread):
-    """ Remote object routing messages and handling other user activity, such as login
+    """ Routes messages between servers and clients.
+
+    Based on actor pattern, that is, sequential processing of messages
+    which removes the need for mutual exclusion primitives.
+
+    A message router hosts arbitrary many client connections, and has knowledge
+    about all other message router in the system.
     """
     def __init__(self, httpPort):
         super().__init__()
         self.mailbox = Mailbox.create_mailbox()
         self.messageRouterMailboxes = []  # Contains all message routers in system
-        self.userToRouterMailbox = {}  # Maps a user name to residing message router
+        self.userToRouterMailbox = {}  # Maps a user name to residing message router. Used for private messages
         self.userToWebSocketConnection = {}  # Holds local web sockets connections
         self.pendingUserLoginToWebSocketConnection = {}  # Holds connections for users that are requesting login at user registry
         self.clientMessageHandlers = {
@@ -27,10 +33,13 @@ class MessageRouter(Thread):
             MessageType.LIST_ALL_USERS: self.list_all_users_handler
         }
         self.serverMessageHandlers = {
-            MessageType.REGISTER_NEW_USER: self.register_new_user_handler,
-            MessageType.REMOVE_EXISTING_USER: self.remove_existing_user_handler,
+            MessageType.USER_REGISTRY_NEW_USER: self.user_registry_new_user_handler,
+            MessageType.USER_REGISTRY_REMOVE_USER: self.user_registry_remove_user_handler,
+            MessageType.NEW_USER: self.new_user_handler,
+            MessageType.REMOVE_USER: self.remove_user_handler,
             MessageType.NEW_MESSAGE_ROUTER: self.new_message_router_handler,
-            MessageType.FORWARD_MESSAGE_TO_ALL_CLIENTS: self.forward_message_to_all_clients_handler
+            MessageType.FORWARD_PUBLIC_MESSAGE_TO_ALL_CLIENTS: self.forward_public_message_to_all_clients_handler,
+            MessageType.FORWARD_PRIVATE_MESSAGE_TO_CLIENT: self.forward_private_message_to_client
         }
 
         self.userRegistryMailbox = self.mailbox.get_mailbox_proxy('user_registry')
@@ -58,38 +67,45 @@ class MessageRouter(Thread):
         else:
             print('unknown server message: ' + msg.messageType)  # Discard message
 
+    ### Client message handlers ###
+
     def login_handler(self, clientMsg, senderConnection):
         self.pendingUserLoginToWebSocketConnection[clientMsg.senderUserName] = senderConnection  # Connection stored locally
-        requestMsg = self.mailbox.create_message(MessageType.REGISTER_NEW_USER, clientMsg.senderUserName)
+        requestMsg = self.mailbox.create_message(MessageType.USER_REGISTRY_NEW_USER, clientMsg.senderUserName)
         self.userRegistryMailbox.put(requestMsg)
 
     def logout_handler(self, clientMsg, senderConnection):
         if clientMsg.senderUserName not in self.userToWebSocketConnection:
-            pass  # log error
+            print('user should have a connection on logout')  # Log error. Discard message.
         else:
-            requestMsg = self.mailbox.create_message(MessageType.REMOVE_EXISTING_USER, clientMsg.senderUserName)
+            requestMsg = self.mailbox.create_message(MessageType.USER_REGISTRY_REMOVE_USER, clientMsg.senderUserName)
             self.userRegistryMailbox.put(requestMsg)
 
-    def public_message_handler(self, msg, senderConnection):
-        for userName, connection in self.userToRouterMailbox.items():
-            connection.send_message(msg)
+    def public_message_handler(self, clientMsg, senderConnection):
+        serverMsg = self.mailbox.create_message(MessageType.FORWARD_PUBLIC_MESSAGE_TO_ALL_CLIENTS, clientMsg)
+        self._send_to_all_message_routers(serverMsg)
 
-    def private_message_handler(self, msg, senderConnection):
+    def private_message_handler(self, clientMsg, senderConnection):
         """ Sends a private message to specified and requesting user
         If user does not exist, message is dropped
         """
-        if msg.receiverUserName in self.userToRouterMailbox:
-            receiverConnection = self.userToRouterMailbox[msg.receiverUserName]
-            receiverConnection.send_message(msg)
-            senderConnection.send_message(msg)
+        if clientMsg.receiverUserName in self.userToRouterMailbox:
+            # Lookup message router hosting client, possibly this instance
+            routerMailbox = self.userToRouterMailbox[clientMsg.receiverUserName]
+            serverMsg = self.mailbox.create_message(MessageType.FORWARD_PRIVATE_MESSAGE_TO_CLIENT, clientMsg)
+            routerMailbox.put(serverMsg)
+            senderConnection.send_message(clientMsg)  # Notification to sender
         else:
-            print('user does not exist: ' + msg.senderUserName)
+            # Target user does not exist, discard message
+            print('user does not exist: ' + clientMsg.receiverUserName)
 
     def list_all_users_handler(self, msg, senderConnection):
         newMsg = ClientMessage(MessageType.LIST_ALL_USERS, allUsers=list(self.userToRouterMailbox.keys()))
         senderConnection.send_message(newMsg)
 
-    def register_new_user_handler(self, msg):
+    ### Server message handlers ###
+
+    def user_registry_new_user_handler(self, msg):
         """ Handles response from user registry whether login was successful or not
         """
         userName, successfullyRegistered = msg.data
@@ -99,42 +115,81 @@ class MessageRouter(Thread):
         del self.pendingUserLoginToWebSocketConnection[userName]
 
         if successfullyRegistered:
-            self.userToWebSocketConnection[userName] = connection
-            clientMsg = ClientMessage(MessageType.LOGIN, userName)
-            serverMsg = self.mailbox.create_message(MessageType.FORWARD_MESSAGE_TO_ALL_CLIENTS, clientMsg)
-            self.send_to_all_message_routers(serverMsg)
+            self.userToWebSocketConnection[userName] = connection  # Permanently store connection
+            serverMsg = self.mailbox.create_message(MessageType.NEW_USER, userName)
+            self._send_to_all_message_routers(serverMsg)
         else:
             newMsg = ClientMessage(MessageType.LOGIN_FAILED, messageText='user name already taken')
             connection.send_message(newMsg)
 
-    def remove_existing_user_handler(self, msg):
+    def user_registry_remove_user_handler(self, msg):
         userName, successfullyRemoved = msg.data
-        connection = self.userToWebSocketConnection[userName]
         if successfullyRemoved:
-            clientMsg = ClientMessage(MessageType.LOGOUT, userName)
-            serverMsg = self.mailbox.create_message(MessageType.FORWARD_MESSAGE_TO_ALL_CLIENTS, clientMsg)
-            self.send_to_all_message_routers(serverMsg)
+            serverMsg = self.mailbox.create_message(MessageType.REMOVE_USER, userName)
+            self._send_to_all_message_routers(serverMsg)
         else:
+            connection = self.userToWebSocketConnection[userName]
             responseMsg = ClientMessage(MessageType.LOGOUT_FAILED, messageText='user does not exist')
             connection.send_message(responseMsg)
 
-    def forward_message_to_all_clients_handler(self, msg):
-        clientMsg = msg.data
-        if clientMsg.senderUserName not in self.userToRouterMailbox:
-            self.userToRouterMailbox[clientMsg.senderUserName] = clientMsg.senderUserName
+    def new_user_handler(self, msg):
+        userName = msg.data
+        if userName in self.userToRouterMailbox:
+            # User should not already be registered. Log error, and discard message. Let client time out and retry.
+            print('warning: user should not already be registered')
+        else:
+            self.userToRouterMailbox[userName] = self.mailbox.get_mailbox_proxy(msg.senderMailboxUri)
+            clientMsg = ClientMessage(MessageType.LOGIN, userName)
+            self._send_to_all_local_clients(clientMsg)
 
-        for userName, connection in self.userToWebSocketConnection.items():
+    def remove_user_handler(self, msg):
+        userName = msg.data
+        if userName not in self.userToRouterMailbox:
+            # Should be registered. Log error, and discard message
+            print('warning: user should be registered')
+        else:
+            clientMsg = ClientMessage(MessageType.LOGOUT, userName)
+            self._send_to_all_local_clients(clientMsg)
+
+            if userName in self.userToWebSocketConnection:
+                # This instance is hosting the user to be removed
+                # Remove book-keeping about client
+                del self.userToWebSocketConnection[userName]
+                del self.userToRouterMailbox[userName]
+
+    def forward_public_message_to_all_clients_handler(self, msg):
+        """ Request from message router to send attached message to all users of this message router
+        """
+        clientMsg = msg.data
+        self._send_to_all_local_clients(clientMsg)
+
+    def forward_private_message_to_client(self, msg):
+        clientMsg = msg.data
+        if clientMsg.receiverUserName in self.userToWebSocketConnection:
+            connection = self.userToWebSocketConnection[clientMsg.receiverUserName]
             connection.send_message(clientMsg)
+        else:
+            # Routing error. Discard message
+            print('can not find connection for private message')
 
     def new_message_router_handler(self, msg):
+        """ Notification from load balancer about message routers.
+        """
         self.messageRouterMailboxes = [self.mailbox.get_mailbox_proxy(uri) for uri in msg.data]
 
-    def send_to_all_message_routers(self, msg):
+    def _send_to_all_message_routers(self, msg):
+        """ Helper method for broadcasting to all message routers in system, including current instance
+        """
         for routerMailbox in self.messageRouterMailboxes:
-            # Notify all message routers, conceptually including itself
             routerMailbox.put(msg)
 
-    def handle_messages_forever(self):
+    def _send_to_all_local_clients(self, msg):
+        """ Helper method for broadcasting to all local clients
+        """
+        for userName, connection in self.userToWebSocketConnection.items():
+            connection.send_message(msg)
+
+    def _handle_messages_forever(self):
         def is_client_msg(msg):
             return isinstance(msg, tuple)
 
@@ -149,7 +204,7 @@ class MessageRouter(Thread):
                 self.handle_server_message(msg)
 
     def run(self):
-        self.handle_messages_forever()
+        self._handle_messages_forever()
 
 
 global_message_router_mailbox = None
@@ -164,7 +219,7 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
     def on_message(self, message):
         """ Wraps de-serialization of message object
         """
-        print('received:')
+        print('received client message:')
         print(message)
         msg = ClientMessage.from_json(message)
         global_message_router_mailbox.put((msg, self))
@@ -172,7 +227,7 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
     def send_message(self, message):
         """ Wraps serialization of message object
         """
-        print('sending:')
+        print('sending client message:')
         print(ClientMessage.to_json(message))
         self.write_message(ClientMessage.to_json(message))
 
@@ -187,7 +242,7 @@ class MainHandler(tornado.web.RequestHandler):
         self.render('index.html')
 
     def set_extra_headers(self, path):
-        self.set_header("Cache-control", "no-cache")
+        self.set_header("Cache-control", "no-cache")  # For development
 
 
 def main(httpPort):
