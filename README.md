@@ -10,7 +10,7 @@ External libraries included in repository:
 
 Chat server requires a Pyro4 naming server running:
 - cd lib
-- python -m Pyro4.naming (or python -m Pyro4.naming -n <host address> if name server binds to localhost)
+- python -m Pyro4.naming (or python -m Pyro4.naming -n \<host address\> if name server binds to localhost)
 
 Start chat server with:
 - cd chatserver
