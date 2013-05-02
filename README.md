@@ -2,7 +2,7 @@ websocket_chat_server
 =====================
 
 Simple distributed chat server using WebSockets with a Web interface.
-Distributed in the sense that server instances run locally as processes. Tested with Python 3.2 and 3.3.
+Distributed in the sense that server instances run locally as processes communication over localhost. Tested with Python 3.2 and 3.3.
 
 External libraries included in repository:
 - Pyro4 (remote objects)
